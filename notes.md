@@ -38,7 +38,27 @@
 - Learning: pip freeze OVERWRITES — install everything first, then freeze.
 - Switched Jupyter kernel to .venv; imports verified.
 
+## Day 5 — Done (Week 1, Thu)
+
+### Seasonal-naive baseline
+- Prediction for hour t = actual at t − 168h (same hour, previous week). No model fit.
+- 168 = 24×7 → locks daily + weekly seasonality at once. Zero params, nothing to overfit.
+- Evaluated on the same walk-forward folds (apples-to-apples with Week 2 model).
+
+### Results (17 folds)
+| metric | mean | median | std |
+|---|---|---|---|
+| MAE  | 760.6 | 516.2 | 665.0 |
+| MAPE | 29.5% | 9.9%  | 53.8% |
+
+- Official baseline = median MAPE 9.9% (typical day). Mean/median gap driven by 2 outlier folds, not general instability.
+
+### Anomaly confirmed — 3 independent sources
+- EDA: −70% trips ~Jan 25.
+- Baseline: 2 folds near Jan 25–26 spike to 214% / 112% MAPE (~10× rest).
+- Real event: largest NYC snowstorm since 2021 (Central Park 11.4", daily record; precip ended Jan 26, 8:30 AM).
+- → Keep as eval case-study for Week 4 anomaly detector.
+
 ## Next
-- Thu: dumb baseline ("tomorrow = same day last week") + base metric (MAE/MAPE) on the folds.
-- Open: verify Jan 25 dip (snowstorm?).
-- Later: split requirements prod vs dev; watch Docker dep bloat.
+- Fri: feature engineering. First feature = lag_168 (the baseline, now one column among many).
+- Week 2 target: model must beat median MAPE 9.9% AND beat baseline on the 2 storm folds.
