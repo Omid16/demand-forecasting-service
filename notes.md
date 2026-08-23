@@ -59,6 +59,26 @@
 - Real event: largest NYC snowstorm since 2021 (Central Park 11.4", daily record; precip ended Jan 26, 8:30 AM).
 - → Keep as eval case-study for Week 4 anomaly detector.
 
-## Next
-- Fri: feature engineering. First feature = lag_168 (the baseline, now one column among many).
-- Week 2 target: model must beat median MAPE 9.9% AND beat baseline on the 2 storm folds.
+## Day 6 — Done (Week 1, Fri)
+
+### Feature engineering
+- Built make_features(y: pd.Series) -> pd.DataFrame in app/features.py. Single responsibility: only BUILDS features, no split, no dropna.
+- Read y independently from data/processed/ (not from notebook 02) → one source of truth, notebooks stay decoupled.
+
+### Features + leakage reasoning
+- Calendar (hour, dayofweek, is_low_demand): safest family — derived from index, no aggregation, zero leak risk.
+- is_low_demand = (hour >= 23) | (hour <= 5), thresholds read from EDA (trough at 4–5, drop-off from 23). Encodes domain knowledge → saves the tree several nested splits.
+- lag_168 = y.shift(168): inherently backward-looking (safe). Positive shift = past; negative would be look-ahead leak. Creates a 168-row NaN warm-up tail.
+- ma_24 = y.rolling(24).mean().shift(1): rolling includes row t itself → leak. shift(1) drops y_t from the window (closed candle, no repaint). Smallest shift that closes the leak = best.
+
+### Decisions (separation of concerns)
+- Features built in make_features. dropna handled AFTER the call, before split. walk-forward split stays separate.
+- Dropping the leading NaN rows is safe: trims the START of the series (warm-up), doesn't break row continuity → walk-forward unaffected.
+
+### Leakage guard
+- assert_series_equal(y.shift(1).rolling(24).mean(), feat["ma_24"], check_names=False).
+- Same value computed two independent ways; passes silently → shift verified correct.
+
+## Carry to Week 2
+- Availability caveat: with horizon=24, shift(1) is optimistic — real last-known point is t-24, not t-1. Must address when building the model.
+- Week 2 target: LightGBM must beat median MAPE 9.9% AND beat baseline on the 2 storm folds.
