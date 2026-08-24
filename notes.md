@@ -104,6 +104,41 @@
 - walk_forward_splits moved from notebook 02 into app/backtest.py. Notebook 02 now imports it → single source of truth (killed the duplicate-definition trap).
 - Tooling lesson: stale-kernel trap in Jupyter — editing features.py doesn't update an already-imported function. Fix = Restart Kernel (clean) or importlib.reload (quick). MQL5 analog: edit without recompile.
 
-## Carry to tomorrow (Week 2, first model)
-- ⚠️ apples-to-apples: baseline was scored on 17 folds; X now yields 10. Re-score seasonal-naive baseline on the SAME 10 folds before trusting any model-vs-baseline comparison.
-- First .fit(): LightGBM on the honest X, same 10 folds. Target: beat median MAPE 9.9% AND beat baseline on the storm folds (3–4).
+
+
+## Day 8 — Done (Week 2, Mon — baseline re-score)
+
+### Apples-to-apples fix
+- Baseline was scored on 17 folds; honest X now yields 10. Re-scored seasonal-naive on the SAME 10 folds before any model comparison.
+- Read baseline straight from X: y_pred = X.loc[te, "lag_168"] (the column IS y.shift(168)) → bit-for-bit identical to what the model sees. No fresh shift.
+- Same score fns as Day 5 (sklearn MAE/MAPE), untouched.
+
+### New official baseline (10 folds)
+| metric | mean | median |
+|---|---|---|
+| MAPE | 40.5% | 10.5% |
+- Official baseline = median MAPE 10.5% (was 9.9% on 17 folds). This 10.5% is now THE number to beat.
+- Predicted by hand, confirmed: median barely moved (9.9→10.5), mean jumped (29.5→40.5). Storm folds now 2-of-10 (was 2-of-17) → heavier weight. mean is sum-based (sensitive to tail), median is rank-based (robust) → two-regime data confirmed (Week 4 fuel).
+
+## Day 9 — Done (Week 2, first .fit())
+
+### Leakage caught + closed
+- First LightGBM gave median MAPE 1.9% — too good → suspected look-ahead (algo-trading instinct: dream Sharpe = cheat first, genius never).
+- feature_importances_: top feature was `y` itself → make_features leaks target into X (used features: 6, should be 5).
+- Fix: X = X.drop(columns="y") in notebook. pandas trap: drop returns a copy, must reassign to X (bare X.drop is a no-op).
+- Confirmed closed: used features 6→5, MAPE jumped to honest number.
+
+### First honest model (10 folds, default params, random_state=42)
+| metric | mean | median |
+|---|---|---|
+| MAPE | 48.0% | 15.2% |
+- Model LOST to baseline: 15.2% vs 10.5%. Not a failure — expected.
+- Cause: only 336 rows/fold → default GBM (100 trees, unbounded depth) overfits. `No further splits` warnings = too little data/structure. Zero-param seasonal-naive has nothing to overfit → beats an untamed GBM on regular taxi data.
+
+### Tech debt (do first tomorrow)
+- ⚠️ Leak fixed only in notebook, NOT at root. make_features still returns `y`. Any other caller (next notebook, Week-3 FastAPI) that forgets drop → leaks again. Violates single-source-of-truth.
+- Root fix = make_features must not return y.
+
+## Carry to tomorrow (Week 2, Day 10)
+1. Root-fix the leak: make make_features drop `y` internally, remove the notebook workaround.
+2. Regularization: rein in the GBM so it stops overfitting 336 rows (fewer/shallower trees, min_child). Target: beat baseline 10.5%, especially on storm folds.
