@@ -79,6 +79,31 @@
 - assert_series_equal(y.shift(1).rolling(24).mean(), feat["ma_24"], check_names=False).
 - Same value computed two independent ways; passes silently → shift verified correct.
 
-## Carry to Week 2
-- Availability caveat: with horizon=24, shift(1) is optimistic — real last-known point is t-24, not t-1. Must address when building the model.
-- Week 2 target: LightGBM must beat median MAPE 9.9% AND beat baseline on the 2 storm folds.
+
+## Day 7 — Done (Week 1→2 bridge)
+
+### Availability correction (the carry-over from Week 1)
+- ma_24: shift(1) → shift(25). Reason = 1 (no-repaint, window must not see current row) + 24 (availability: worst hour of the 24h block sits 24h ahead of last closed point t-1).
+- Rule derived: a feature with shift >= horizon is inherently safe (passes availability). Only shorter-than-horizon windows need manual push-back.
+  - lag_168: 168 >= 24 → safe (worst hour still reaches only t-145).
+  - ma_24: short window → had to be pushed to shift(25).
+- Verified the correction is NOT a no-op: (shift(1) != shift(25)).sum() = 744 rows differ; max abs diff ~4820. head(3) hid it (looked identical) → lesson: use (a!=b).sum() / .abs().max() to diff, not head.
+
+### 03_features.ipynb — see & validate X (no model yet)
+- Notebook only calls make_features from app/features.py (no feature logic in notebook → single source of truth).
+- X = feat.dropna() drops warm-up tail. y aligned by LABEL: y1 = y.loc[X.index] (not positional slicing — positional breaks silently if a mid-series NaN ever appears).
+- Guard: assert (X.index == y1.index).all() → true alignment, not just equal length.
+- warm-up: lag_168 makes the longest NaN tail → first 7 days (168 rows) consumed (not lost — they feed lag_168 for the rest). Series 744 → 576h. X starts 2026-01-08.
+
+### Walk-forward wired to the honest X
+- walk_forward_splits(X, 24*14, 24, 24, "expanding") → 10 folds (was 17). Reason: (576-336)/24 ≈ 10; 7 daily steps dropped with the 7-day warm-up. Predicted by hand before running, confirmed by len(folds).
+- expanding confirmed visually: train.min fixed at Jan 8, train.max slides forward each fold. Leakage guard (train.max < test.min) green.
+- Storm folds (Jan 25–26) not in first 3 → likely fold 3–4. Watch these when scoring the model.
+
+### Refactor / hygiene
+- walk_forward_splits moved from notebook 02 into app/backtest.py. Notebook 02 now imports it → single source of truth (killed the duplicate-definition trap).
+- Tooling lesson: stale-kernel trap in Jupyter — editing features.py doesn't update an already-imported function. Fix = Restart Kernel (clean) or importlib.reload (quick). MQL5 analog: edit without recompile.
+
+## Carry to tomorrow (Week 2, first model)
+- ⚠️ apples-to-apples: baseline was scored on 17 folds; X now yields 10. Re-score seasonal-naive baseline on the SAME 10 folds before trusting any model-vs-baseline comparison.
+- First .fit(): LightGBM on the honest X, same 10 folds. Target: beat median MAPE 9.9% AND beat baseline on the storm folds (3–4).
