@@ -8,5 +8,5 @@ def make_features(y: pd.Series) -> pd.DataFrame:
     df["lag_168"] = df["y"].shift(168)
     df["ma_24"] = df["y"].rolling(24).mean().shift(25)
 
-    return df
+    return df.drop(columns="y")
 

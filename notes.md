@@ -135,10 +135,31 @@
 - Model LOST to baseline: 15.2% vs 10.5%. Not a failure — expected.
 - Cause: only 336 rows/fold → default GBM (100 trees, unbounded depth) overfits. `No further splits` warnings = too little data/structure. Zero-param seasonal-naive has nothing to overfit → beats an untamed GBM on regular taxi data.
 
-### Tech debt (do first tomorrow)
-- ⚠️ Leak fixed only in notebook, NOT at root. make_features still returns `y`. Any other caller (next notebook, Week-3 FastAPI) that forgets drop → leaks again. Violates single-source-of-truth.
-- Root fix = make_features must not return y.
 
-## Carry to tomorrow (Week 2, Day 10)
-1. Root-fix the leak: make make_features drop `y` internally, remove the notebook workaround.
-2. Regularization: rein in the GBM so it stops overfitting 336 rows (fewer/shallower trees, min_child). Target: beat baseline 10.5%, especially on storm folds.
+
+## Day 10 — Done (Week 2, root-fix leak + regularization)
+
+### Leak closed at root
+- make_features: `return df` → `return df.drop(columns="y")`. y still BUILT inside (lag_168, ma_24 need it) but no longer LEAVES. Working column ≠ output column.
+- Verified X.columns == 5. Notebook workaround removed → root is single source of truth (FastAPI Week 3 gets clean X automatically).
+
+### Regularization
+- num_leaves=5, min_child_samples=7, n_estimators=50, random_state=42.
+- Why these: attack tree-internal complexity first (answers the `No further splits` symptom); n_estimators is the blunt lever. Light trees = weak learners → need MORE of them, not fewer.
+- `No further splits` warnings GONE → worked mechanically. But median MAPE ~15.6% → still loses to baseline 10.5%.
+
+### Per-fold (the story median hid)
+- 8 normal folds ~10–26% → level with baseline. median over normal ≈ 14%.
+- 2 storm folds (3,4): 245% / 131% → WORSE than baseline (214% / 112%). Model is storm-fragile, not storm-robust.
+
+### Lessons
+- median immune to VALUE of outliers, not their COUNT (15.6% on 10 vs 14% on 8 normal). → separate regimes before aggregating.
+- Model fit on normal regime = worst in regime shift (confidently continues old pattern). Storm = regime shift = algo-trading crash/gap analog.
+- Not overfit anymore — no feature tells the model a storm exists. Forecasting a storm ≠ forecaster's job → Week 4 anomaly detector.
+- On regular data, seasonal-naive is a genuinely hard baseline. Beating it needs BETTER FEATURES, not more regularization.
+
+## Carry to Day 11
+- DECISION (eyes open): one more fold on a NEW feature to try to beat baseline. Ahead of roadmap so justified; may take up to a day (each new lag/rolling needs its own leakage/availability analysis + re-run).
+- Feature = HOLIDAYS. Known in advance → no leakage. Hypothesis: lag_168 misfires when last week normal but this week is a holiday.
+- Storm feature REJECTED = look-ahead leakage (saw the storm in data already). → Week 4 anomaly detector.
+- ⚠️ ANSWER FIRST: data is January 2026 only. How many real holidays are in it? If 1–2, too few samples to learn → revisit decision before building.
