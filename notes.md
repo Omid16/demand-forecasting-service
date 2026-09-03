@@ -163,3 +163,44 @@
 - Feature = HOLIDAYS. Known in advance → no leakage. Hypothesis: lag_168 misfires when last week normal but this week is a holiday.
 - Storm feature REJECTED = look-ahead leakage (saw the storm in data already). → Week 4 anomaly detector.
 - ⚠️ ANSWER FIRST: data is January 2026 only. How many real holidays are in it? If 1–2, too few samples to learn → revisit decision before building.
+
+
+
+## Day 11 — Done (Week 2, Tue — experiment tracking)
+
+### HOLIDAYS feature — REJECTED (answered the "answer first" question)
+- Counted real holidays inside honest X (starts Jan 8): New Year (Jan 1) falls in warm-up → OUT. MLK (Jan 19) → IN. So n=1 real holiday in the eval window.
+- n=1 → a tree can't learn a feature that fires once in the whole series. Feature dropped. Honest result, not a failure.
+- Weekend ≠ holiday: model already knows weekends via dayofweek + lag_168. For taxi, weekend is PEAK demand (Sat highest, EDA Day 3), not low → flagging it would teach the reverse. MQL5 analog: weekend = market closed, hardcoded in calendar, not a news-event flag.
+- Spike handling = NOT forecaster's job. Known-in-advance (holiday) could be a feature; surprise spike (storm) = look-ahead if flagged from data already seen. → Week 4 anomaly detector on residuals.
+- DECISION: model is level with seasonal-naive on normal data. Accepted as the honest result (as sworn Day 10). Modeling of Project 1 is CLOSED.
+
+### MLflow set up (SQLite backend)
+- `pip install mlflow` (3.15.2). Side effect: pandas 3.0.5 → 2.3.3 (mlflow needs pandas<3). Re-ran notebooks 02+03, leakage guards still green → downgrade safe. Froze requirements.txt.
+- Backend = sqlite:///mlflow.db (not default file store). Reason: model registry (Week 3/4) needs a DB backend, file store can't do it. Ahead-choice.
+- .gitignore += mlflow.db, mlruns/, mlartifacts/. Three DIFFERENT reasons for ignore: .venv = reproducible-local, .env = secret, mlflow.db = local state of another tool (NOT reproducible, but not git's job either). MLflow complements git (versions results), doesn't replace it (versions code).
+- UI: `mlflow ui --backend-store-uri sqlite:///notebooks/mlflow.db` — must point at the SAME db or UI shows empty.
+
+### num-leaves bug (caught by MLflow)
+- LightGBM warned `Unknown parameter: num-leaves` → I'd passed it with a HYPHEN. LGBM silently ignored it and ran default num_leaves=31, NOT 5. So the "regularized" run wasn't regularized at all.
+- Worse: log_params logged num_leaves=5 (correct dict) while model ran 31 → MLflow would've recorded a LIE. Fixed the key → warnings gone, median MAPE back to 15.6% (matches Day 10).
+- Lesson: this is exactly why single-source-of-truth matters. One dict feeds BOTH model (**params) AND MLflow → no room to diverge. For defaults, read from the model itself: model.get_params(), never hand-type.
+
+### 3-model comparison logged (roadmap Tue: "compare several models")
+- All 3 scored on the SAME 10 folds (apples-to-apples, Day 8 rule). Eval params (initial_train=336, horizon=24, step=24, expanding) logged on every run = proof of fair comparison.
+
+| run | model_type | mape_median | mape_mean |
+|---|---|---|---|
+| seasonal_naive | baseline | 10.5% | 40.5% |
+| lgbm_default | num_leaves=31 | 15.2% | 48.0% |
+| lgbm_regularized | num_leaves=5 | 15.6% | 49.5% |
+
+- Baseline read straight from X.loc[te, "lag_168"] → no fresh shift, bit-for-bit Day 8. Duration 60ms vs model 1.5s → cheapest baseline still beats costliest model on normal data. Bottleneck is FEATURES, not compute/algorithm.
+- Every run: mape_mean logged alongside mape_median on purpose. The mean/median gap (≈50% vs ≈15%) shows the two-regime (storm) story without opening per-fold.
+
+### Why no other algorithms (XGBoost/CatBoost etc.)
+- Bottleneck is features, not model. Any GBM hits the seasonal-naive ceiling on normal data + goes blind in storm folds (no storm feature). Swapping algorithm doesn't move that ceiling. Roadmap's sacred rule: wrapper hires you, not model accuracy. Adding algorithms = tuning the thing that isn't the problem.
+
+## Carry to Day 12
+- joblib: save the model + interpret results (roadmap Fri). OPEN QUESTION first: WHICH model to serve — regularized, default, or baseline? Baseline wins on median (10.5%) but isn't a real model. Decide before saving.
+- Still open for Week 2: LinkedIn post #3 (plan = video series, not text).
